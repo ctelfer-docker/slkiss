@@ -31,6 +31,8 @@ func usage() {
 }
 
 func main() {
+	var err error
+
 	flag.Parse()
 	if *inum < 0 || flag.NArg() < 1 {
 		usage()
@@ -46,22 +48,27 @@ func main() {
 
 	a := github.NewRepoAgent(*repo)
 	t := encodeBasicAuth(*user, *auth)
-	fmt.Println("token =", t)
 	a.SetToken(t)
 
 	switch flag.Arg(0) {
 	case "open":
-		a.OpenIssue(*inum)
+		err = a.OpenIssue(*inum)
 	case "close":
-		a.CloseIssue(*inum)
+		err = a.CloseIssue(*inum)
 	case "assign":
 		if flag.NArg() != 2 {
 			usage()
 		}
-		a.AssignIssue(*inum, flag.Arg(1))
+		err = a.AssignIssue(*inum, flag.Arg(1))
 	case "unassign":
-		a.UnassignIssue(*inum)
+		err = a.UnassignIssue(*inum)
 	default:
 		usage()
 	}
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	fmt.Println("Operation completed successfully")
 }

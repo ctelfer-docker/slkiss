@@ -114,8 +114,7 @@ func ModIssue(base string, tok string, num int, fields map[string]interface{}) e
 		fmt.Errorf("Error marshalling request: %s", err.Error())
 	}
 
-	fmt.Println("JSON: ", string(json))
-	req, err := http.NewRequest(http.MethodPatch, addr, bytes.NewBuffer(json))
+	req, err := http.NewRequest(http.MethodPatch, addr, bytes.NewReader(json))
 	if err != nil {
 		return err
 	}
@@ -126,14 +125,17 @@ func ModIssue(base string, tok string, num int, fields map[string]interface{}) e
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
 
-	// REMOVEME
-	if err == nil {
+	if err == nil && resp.StatusCode != 200 {
+		err = fmt.Errorf("Github Response error: %s", resp.Status)
+	}
+
+	/*
+		DEBUG
 		fmt.Println("Response Status:", resp.Status)
 		fmt.Println("Response Headers:\n", resp.Header)
 		body, _ := ioutil.ReadAll(resp.Body)
 		fmt.Println("Response Body:\n", string(body))
-	}
-	// REMOVEME
+	*/
 
 	return err
 }
