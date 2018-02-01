@@ -14,9 +14,10 @@ import (
 
 var _ = ioutil.ReadAll // XXX REMOVE ME when done debugging
 
-const BaseURL = "https://api.github.com/repos/"
+// Base URL for API access
+const APIURL = "https://api.github.com/repos/"
 
-// This represents the fields of an individual issue.
+// Issue represents the fields of an individual issue.
 type Issue struct {
 	Number    int
 	Title     string
@@ -33,23 +34,23 @@ type Issue struct {
 	Locked    bool
 }
 
-// This type represents a github user entry
+// User represents a github user entry.
 type User struct {
 	Login   string
 	ID      int
 	HTMLURL string `json:"html_url"`
 }
 
-// This type represents a github issue Label
+// Label represents a github issue label.
 type Label struct {
 	Name string
 	URL  string
 }
 
-// This is a helper function that issues a github issue query and
+// SearchIssues() a function that sends a github issue list query and
 // returns the full results or an error.  Github limits the number
-// of entries per 'GET' so thsi function invokes getLink() to find the
-// link to the next set of results for the query.
+// of entries per 'GET' so this function parses the response to fetch
+// subsequenty query results until it reaches the end of the list.
 func SearchIssues(base string, params map[string]string) ([]*Issue, error) {
 	var result []*Issue
 	p := ""
@@ -80,7 +81,8 @@ func SearchIssues(base string, params map[string]string) ([]*Issue, error) {
 }
 
 // Fetch a particular issue from github based on its number.
-// This function assumes that `base` includes a full repo path for a query.
+//
+// This function assumes that base includes a full repo path for a query.
 //   e.g. https://api.github.com/repos/OWNER/REPO
 //
 func GetIssue(base string, num int) (*Issue, error) {
@@ -200,7 +202,7 @@ func NewAgent(base string, params map[string]string) *Agent {
 // This function is a constructor for a github issue searcher that
 // always queries issues from a specific owner/repo.
 func NewRepoAgent(name string) *Agent {
-	return NewAgent(BaseURL+name+"/issues", make(map[string]string))
+	return NewAgent(APIURL+name+"/issues", make(map[string]string))
 }
 
 // This function adds search parameters to the fixed parameters for the searcher.
