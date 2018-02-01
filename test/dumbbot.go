@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 	a := fmt.Sprintf("%s:%d", *addr, *port)
 	log.Println(a)
-	bot := slack.NewIssueBot(a, "ctelfer-docker", "slkiss")
+	bot := slack.NewIssueBot(a, "ctelfer-docker/slkiss")
 	bot.AddUserMap("ctelfer", "ctelfer-docker")
 	if *cfgfn != "" {
 		log.Println("Loading config file")

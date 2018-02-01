@@ -51,11 +51,11 @@ func (c *botHandlerCtx)ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Create a new IssueBot
-func NewIssueBot(addr string, repo string, project string) *IssueBot {
+func NewIssueBot(addr string, repo string) *IssueBot {
 	b := &IssueBot{}
 	b.addr = addr
 	b.mux = http.NewServeMux()
-	b.agent = github.NewRepoAgent(repo + "/" + project)
+	b.agent = github.NewRepoAgent(repo)
 	for _, h := range handlers {
 		b.addHandler(h.pat, h.f)
 
@@ -63,6 +63,10 @@ func NewIssueBot(addr string, repo string, project string) *IssueBot {
 	b.g2s = make(map[string]string)
 	b.s2g = make(map[string]string)
 	return b
+}
+
+func (b *IssueBot) SetGithubAuth(token string) {
+	b.agent.SetToken(token)
 }
 
 func (b *IssueBot) addHandler(pattern string, f botHandlerFunc) {
