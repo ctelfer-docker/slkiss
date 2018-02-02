@@ -14,40 +14,36 @@ import (
 	"github.com/ctelfer-docker/slkiss/github"
 )
 
-var handlers = []struct{
-	pat string
-	f botHandlerFunc
-}{
-	{"/find-issue", findIssue},
-	{"/close-issue", closeIssue},
-	{"/reopen-issue", reopenIssue},
-	{"/assign-issue", assignIssue},
-	{"/unassign-issue", unassignIssue},
-	{"/register", registerUser},
-	{"/getalias", getAlias},
-	{"/", invalidOp},
+type botHandlerFunc func(*IssueBot, http.ResponseWriter, *http.Request, []string)
 
+var handlers = map[string]botHandlerFunc{
+	"help":       help,
+	"find":       findIssue,
+	"close":      closeIssue,
+	"reopen":     reopenIssue,
+	"assign":     assignIssue,
+	"unassign":   unassignIssue,
+	"register":   registerUser,
+	"get-alias":  getAlias,
+	"unregister": unregisterUser,
 }
 
 // Bot implements a slackbot that manages 
 type IssueBot struct {
 	sync.Mutex
-	addr   string
-	mux    *http.ServeMux
-	agent  *github.Agent
-	g2s    map[string]string
-	s2g    map[string]string
+	addr     string
+	mux      *http.ServeMux
+	agent    *github.Agent
+	dispatch map[string]botHandlerFunc
+	g2s      map[string]string
+	s2g      map[string]string
 }
 
-type botHandlerFunc func(*IssueBot, http.ResponseWriter, *http.Request)
 
+// This structure basically hides the ServeHTTP method
+// while providing access to the IssueBot structure for serving.
 type botHandlerCtx struct {
 	b *IssueBot
-	f botHandlerFunc
-}
-
-func (c *botHandlerCtx)ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	c.f(c.b, w, r)
 }
 
 // Create a new IssueBot
@@ -56,36 +52,32 @@ func NewIssueBot(addr string, repo string) *IssueBot {
 	b.addr = addr
 	b.mux = http.NewServeMux()
 	b.agent = github.NewRepoAgent(repo)
-	for _, h := range handlers {
-		b.addHandler(h.pat, h.f)
-
-	}
+	b.mux.Handle("/issue", &botHandlerCtx{b})
 	b.g2s = make(map[string]string)
 	b.s2g = make(map[string]string)
 	return b
 }
 
+// Set the authentication token to send with Github requests
 func (b *IssueBot) SetGithubAuth(token string) {
 	b.agent.SetToken(token)
 }
 
-func (b *IssueBot) addHandler(pattern string, f botHandlerFunc) {
-	c := &botHandlerCtx{b, f}
-	b.mux.Handle(pattern, c)
-}
-
 // Add a mapping from a slack username (sname) to a github username (gname).
-func (b *IssueBot) AddUserMap(sname string, gname string) {
-	b.Lock()
-	defer b.Unlock()
+func (b *IssueBot) AddUserMap(sname string, gname string) bool{
+	if _, ok := b.g2s[gname]; ok {
+		return false
+	}
+	if _, ok := b.s2g[sname]; ok {
+		return false
+	}
 	b.g2s[gname] = sname
 	b.s2g[sname] = gname
+	return true
 }
 
 // Delete the name mappings for the user specified by the slack name sname.
 func (b *IssueBot) DelUserBySlack(sname string) {
-	b.Lock()
-	defer b.Unlock()
 	gname, ok := b.s2g[sname]
 	if ok {
 		delete(b.g2s, gname)
@@ -94,68 +86,16 @@ func (b *IssueBot) DelUserBySlack(sname string) {
 
 }
 
+// Start the http server in the issuebot
 func (b *IssueBot) Run() {
 	log.Fatal(http.ListenAndServe(b.addr, b.mux))
 }
 
-func findIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	var assignee string
-	inum, ok := parseSimpleNumCmd(w, r, "usage: /find-issue NUMBER")
-	if !ok {
-		return
-	}
-	issue, err := b.agent.GetIssue(inum)
-	if err != nil {
-		msg := fmt.Sprintf("Unable to find issue %d", inum)
-		log.Println("Unable to find issue", inum, ":", err)
-		w.Write([]byte(msg))
-		return
-	}
-	if issue.Assignee == nil {
-		assignee = ""
-	} else {
-		assignee = issue.Assignee.Login
-		if s, ok := b.g2s[assignee]; ok {
-			assignee = "@" + s
-		}
-		assignee = "\tAssigned to: " + assignee
-	}
-	msg := fmt.Sprintf("Issue %d: %q\n\tURL: %s\n\tState: %s\n%s", inum, issue.Title, issue.HTMLURL, issue.State, assignee)
-	w.Write([]byte(msg))
-}
-
-func closeIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	inum, ok := parseSimpleNumCmd(w, r, "usage: /close-issue NUMBER")
-	if !ok {
-		return
-	}
-	// XXX TODO: make this a channel-wide announcement
-	msg := fmt.Sprintf("Issue %d successfully closed", inum)
-	err := b.agent.CloseIssue(inum)
-	if err != nil {
-		msg = fmt.Sprintf("Unable to close issue %d", inum)
-		log.Println("Unable to close issue", inum, ":", err)
-	}
-	w.Write([]byte(msg))
-}
-
-func reopenIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	inum, ok := parseSimpleNumCmd(w, r, "usage: /reopen-issue NUMBER")
-	if !ok {
-		return
-	}
-	// XXX TODO: make this a channel-wide announcement
-	msg := fmt.Sprintf("Issue %d successfully reopened", inum)
-	err := b.agent.OpenIssue(inum)
-	if err != nil {
-		msg = fmt.Sprintf("Unable to reopen issue %d", inum)
-		log.Println("Unable to reopen issue", inum, ":", err)
-	}
-	w.Write([]byte(msg))
-}
-
-func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	usageMsg := []byte("usage: /assign-issue NUM [@SLACKNAME|@me|GITHUBNAME]")
+// This is the main dispatch for the /issue command from slack.
+// It performs the basic command parsing and then calls a handler for
+// the subcommand.
+func (c *botHandlerCtx)ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	b := c.b
 	if err := r.ParseForm(); err != nil {
 		reqErr(w, err)
 		return
@@ -165,16 +105,126 @@ func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
 		reqErr(w, err)
 		return
 	}
-	ss := strings.Fields(text)
-	if len(ss) != 2 {
-		w.Write(usageMsg)
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		help(b, w, r, nil)
 		return
 	}
-	inum, err := strconv.Atoi(ss[0])
-	if err != nil {
-		w.Write(usageMsg)
+
+	h, ok := handlers[fields[0]]
+	if !ok {
+		h = help
 	}
-	name := ss[1]
+	h(b, w, r, fields[1:])
+}
+
+func help(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	w.Write([]byte(`usage: /issue CMD [params]
+Commands:
+	/issue find NUM
+	/issue close NUM
+	/issue reopen NUM
+	/issue assign NUM [@SLACKNAME|@me|GITHUBNAME]
+	/issue unassign NUM
+	/issue register GITHUBUSER
+	/issue get-alias
+	/issue unregister
+`))
+}
+
+func findIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	var assignee string
+
+	msg := "usage: /issue find NUMBER"
+	defer func(){w.Write([]byte(msg))}()
+
+	inum, ok := parseSimpleNumCmd(w, r, f)
+	if !ok {
+		return
+	}
+
+	b.Lock()
+	issue, err := b.agent.GetIssue(inum)
+	b.Unlock()
+
+	if err != nil {
+		msg = fmt.Sprintf("Unable to find issue %d", inum)
+		log.Println("Unable to find issue", inum, ":", err)
+		return
+	}
+
+	if issue.Assignee == nil {
+		assignee = ""
+	} else {
+		assignee = issue.Assignee.Login
+		if s, ok := b.g2s[assignee]; ok {
+			assignee = "@" + s
+		}
+		assignee = "\tAssigned to: " + assignee
+	}
+
+	msg = fmt.Sprintf("Issue %d: %q\n\tURL: %s\n\tState: %s\n%s", inum, issue.Title, issue.HTMLURL, issue.State, assignee)
+}
+
+func closeIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue close NUMBER"
+	defer func(){w.Write([]byte(msg))}()
+
+	inum, ok := parseSimpleNumCmd(w, r, f)
+	if !ok {
+		return
+	}
+
+	// XXX TODO: make this a channel-wide announcement
+	msg = fmt.Sprintf("Issue %d successfully closed", inum)
+
+	b.Lock()
+	err := b.agent.CloseIssue(inum)
+	b.Unlock()
+
+	if err != nil {
+		msg = fmt.Sprintf("Unable to close issue %d", inum)
+		log.Println("Unable to close issue", inum, ":", err)
+	}
+}
+
+func reopenIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue reopen NUMBER"
+	defer func(){w.Write([]byte(msg))}()
+
+	inum, ok := parseSimpleNumCmd(w, r, f)
+	if !ok {
+		return
+	}
+
+	// XXX TODO: make this a channel-wide announcement
+	msg = fmt.Sprintf("Issue %d successfully reopened", inum)
+	b.Lock()
+	err := b.agent.OpenIssue(inum)
+	b.Unlock()
+
+	if err != nil {
+		msg = fmt.Sprintf("Unable to reopen issue %d", inum)
+		log.Println("Unable to reopen issue", inum, ":", err)
+	}
+}
+
+func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue assign NUM [@SLACKNAME|@me|GITHUBNAME]"
+	defer func(){w.Write([]byte(msg))}()
+
+	if len(f) != 2 {
+		return
+	}
+	inum, err := strconv.Atoi(f[0])
+	if err != nil {
+		return
+	}
+
+	b.Lock()
+	defer b.Unlock()
+
+	name := f[1]
 	gname := name
 	if gname == "@me" {
 		name, err = getField("user_name", r)
@@ -187,78 +237,101 @@ func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
 	if name[0] == '@' {
 		s, ok := b.s2g[name[1:]]
 		if !ok {
-			msg := fmt.Sprintf("%q is not registered", name)
-			w.Write([]byte(msg))
+			msg = fmt.Sprintf("%q is not registered", name)
 			return
 		}
 		gname = s
 	}
+
 	// XXX TODO: make this a channel-wide announcement
-	msg := fmt.Sprintf("Issue %d is now assigned to %s", inum, name)
+	msg = fmt.Sprintf("Issue %d is now assigned to %s", inum, name)
 	err = b.agent.AssignIssue(inum, gname)
+
 	if err != nil {
 		msg = fmt.Sprintf("Unable to assign issue %d to %q", inum, name)
 		log.Println("Unable to assign issue", inum, "to", gname, ":", err)
 	}
-	w.Write([]byte(msg))
 }
 
-func unassignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	inum, ok := parseSimpleNumCmd(w, r, "usage: /unassign-issue NUMBER")
+func unassignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue unassign NUMBER"
+	defer func(){w.Write([]byte(msg))}()
+
+	inum, ok := parseSimpleNumCmd(w, r, f)
 	if !ok {
 		return
 	}
+
 	// XXX TODO: make this a channel-wide announcement
-	msg := fmt.Sprintf("Issue %d is no longer assigned to anyone", inum)
+	msg = fmt.Sprintf("Issue %d is no longer assigned to anyone", inum)
+	b.Lock()
 	err := b.agent.UnassignIssue(inum)
+	b.Unlock()
+
 	if err != nil {
 		msg = fmt.Sprintf("Unable to unassign issue %d", inum)
 		log.Println("Unable to unassign issue", inum, ":", err)
 	}
-	w.Write([]byte(msg))
 }
 
-func registerUser(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		reqErr(w, err)
-		return
-	}
+func registerUser(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue register GITHUBUSER"
+	defer func(){w.Write([]byte(msg))}()
+
 	sname, err := getField("user_name", r)
 	if err != nil {
 		reqErr(w, err)
 		return
 	}
-	gname, err := getField("text", r)
-	if err != nil {
-		reqErr(w, err)
+	if len(f) != 1 {
 		return
 	}
-	gname = strings.Trim(gname, " \r\n")
-	b.AddUserMap(sname, gname)
-	w.Write([]byte(fmt.Sprintf("You are now registered as github user %q\n", gname)))
+
+	msg = fmt.Sprintf("You are now registered as github user %q\n", f[0])
+	b.Lock()
+	defer b.Unlock()
+	if !b.AddUserMap(sname, f[0]) {
+		msg = fmt.Sprintf("Registration conflict")
+	}
 }
 
-func getAlias(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		reqErr(w, err)
-		return
-	}
+func getAlias(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue get-alias"
+	defer func(){w.Write([]byte(msg))}()
+
 	sname, err := getField("user_name", r)
 	if err != nil {
 		reqErr(w, err)
 		return
 	}
+
+	b.Lock()
+	defer b.Unlock()
 	gname, ok := b.s2g[sname]
 	if !ok {
-		w.Write([]byte(fmt.Sprintf("You are currently not registered as a github user")))
+		msg = fmt.Sprintf("You are currently not registered as a github user")
 	} else {
-		w.Write([]byte(fmt.Sprintf("You are currently registered as github user %q", gname)))
+		msg = fmt.Sprintf("You are currently registered as github user %q", gname)
 	}
 }
 
-func invalidOp(b *IssueBot, w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Invalid operation"))
+func unregisterUser(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	msg := "usage: /issue unregister"
+	defer func(){w.Write([]byte(msg))}()
+
+	sname, err := getField("user_name", r)
+	if err != nil {
+		reqErr(w, err)
+		return
+	}
+
+	b.Lock()
+	defer b.Unlock()
+	b.DelUserBySlack(sname)
+	msg = "Registration cleared"
 }
+
+// --------------------- UTILITY PARSING FUNCIONS ---------------------
 
 func reqErr(w http.ResponseWriter, e error) {
 	w.Write([]byte("Error:  malformed request"))
@@ -274,19 +347,12 @@ func getField(field string, r *http.Request) (string, error) {
 
 }
 
-func parseSimpleNumCmd(w http.ResponseWriter, r *http.Request, usage string) (int, bool) {
-	if err := r.ParseForm(); err != nil {
-		reqErr(w, err)
+func parseSimpleNumCmd(w http.ResponseWriter, r *http.Request, f []string) (int, bool) {
+	if len(f) != 1 {
 		return -1, false
 	}
-	inumstr, err := getField("text", r)
+	inum, err := strconv.Atoi(f[0])
 	if err != nil {
-		reqErr(w, err)
-		return -1, false
-	}
-	inum, err := strconv.Atoi(inumstr)
-	if err != nil {
-		w.Write([]byte(usage))
 		return -1, false
 	}
 	return inum, true

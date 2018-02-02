@@ -12,8 +12,8 @@ import (
 )
 
 var repo  = flag.String("r", "ctelfer-docker/slkiss", "Default repository to manage")
-var user  = flag.String("u", "ctelfer-docker", "User for the bot to operate as")
-var auth  = flag.String("a", "", "Authentication token")
+var user  = flag.String("u", "ctelfer-docker", "Github user for the bot to operate as")
+var auth  = flag.String("a", "", "Authentication token -- alternately set GHMOD_PASSWORD")
 var addr  = flag.String("l", "", "Address to listen on")
 var port  = flag.Uint("p", 80, "Port to listen on")
 var cfgfn = flag.String("c", "", "Config field to load")
