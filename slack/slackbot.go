@@ -5,14 +5,16 @@ package slack
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"strconv"
 	"sync"
 
 	"github.com/ctelfer-docker/slkiss/github"
+	"github.com/sirupsen/logrus"
 )
+
+var log = logrus.WithFields(logrus.Fields{"component": "slackbot"})
 
 type botHandlerFunc func(*IssueBot, http.ResponseWriter, *http.Request, []string)
 
@@ -97,12 +99,12 @@ func (b *IssueBot) Run() {
 func (c *botHandlerCtx)ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b := c.b
 	if err := r.ParseForm(); err != nil {
-		reqErr(w, err)
+		reqErr(log, w, err)
 		return
 	}
 	text, err := getField("text", r)
 	if err != nil {
-		reqErr(w, err)
+		reqErr(log, w, err)
 		return
 	}
 	fields := strings.Fields(text)
@@ -135,6 +137,7 @@ Commands:
 func findIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
 	var assignee string
 
+	log := log.WithField("method", "findIssue")
 	msg := "usage: /issue find NUMBER"
 	defer func(){w.Write([]byte(msg))}()
 
@@ -149,7 +152,7 @@ func findIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) 
 
 	if err != nil {
 		msg = fmt.Sprintf("Unable to find issue %d", inum)
-		log.Println("Unable to find issue", inum, ":", err)
+		log.Info("Unable to find issue ", inum, ": ", err)
 		return
 	}
 
@@ -167,6 +170,7 @@ func findIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) 
 }
 
 func closeIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "closeIssue")
 	msg := "usage: /issue close NUMBER"
 	defer func(){w.Write([]byte(msg))}()
 
@@ -184,11 +188,12 @@ func closeIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string)
 
 	if err != nil {
 		msg = fmt.Sprintf("Unable to close issue %d", inum)
-		log.Println("Unable to close issue", inum, ":", err)
+		log.Info("Unable to close issue ", inum, ": ", err)
 	}
 }
 
 func reopenIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "reopenIssue")
 	msg := "usage: /issue reopen NUMBER"
 	defer func(){w.Write([]byte(msg))}()
 
@@ -205,11 +210,12 @@ func reopenIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string
 
 	if err != nil {
 		msg = fmt.Sprintf("Unable to reopen issue %d", inum)
-		log.Println("Unable to reopen issue", inum, ":", err)
+		log.Infof("Unable to reopen issue ", inum, ": ", err)
 	}
 }
 
 func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "assignIssue")
 	msg := "usage: /issue assign NUM [@SLACKNAME|@me|GITHUBNAME]"
 	defer func(){w.Write([]byte(msg))}()
 
@@ -229,7 +235,7 @@ func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string
 	if gname == "@me" {
 		name, err = getField("user_name", r)
 		if err != nil {
-			reqErr(w, err)
+			reqErr(log, w, err)
 			return
 		}
 		name = "@" + name
@@ -249,11 +255,12 @@ func assignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string
 
 	if err != nil {
 		msg = fmt.Sprintf("Unable to assign issue %d to %q", inum, name)
-		log.Println("Unable to assign issue", inum, "to", gname, ":", err)
+		log.Info("Unable to assign issue ", inum, " to ", gname, ": ", err)
 	}
 }
 
 func unassignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "unassignIssue")
 	msg := "usage: /issue unassign NUMBER"
 	defer func(){w.Write([]byte(msg))}()
 
@@ -270,17 +277,18 @@ func unassignIssue(b *IssueBot, w http.ResponseWriter, r *http.Request, f []stri
 
 	if err != nil {
 		msg = fmt.Sprintf("Unable to unassign issue %d", inum)
-		log.Println("Unable to unassign issue", inum, ":", err)
+		log.Info("Unable to unassign issue ", inum, ": ", err)
 	}
 }
 
 func registerUser(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "registerUser")
 	msg := "usage: /issue register GITHUBUSER"
 	defer func(){w.Write([]byte(msg))}()
 
 	sname, err := getField("user_name", r)
 	if err != nil {
-		reqErr(w, err)
+		reqErr(log, w, err)
 		return
 	}
 	if len(f) != 1 {
@@ -296,12 +304,13 @@ func registerUser(b *IssueBot, w http.ResponseWriter, r *http.Request, f []strin
 }
 
 func getAlias(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "getAlias")
 	msg := "usage: /issue get-alias"
 	defer func(){w.Write([]byte(msg))}()
 
 	sname, err := getField("user_name", r)
 	if err != nil {
-		reqErr(w, err)
+		reqErr(log, w, err)
 		return
 	}
 
@@ -316,12 +325,13 @@ func getAlias(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
 }
 
 func unregisterUser(b *IssueBot, w http.ResponseWriter, r *http.Request, f []string) {
+	log := log.WithField("method", "unregisterUser")
 	msg := "usage: /issue unregister"
 	defer func(){w.Write([]byte(msg))}()
 
 	sname, err := getField("user_name", r)
 	if err != nil {
-		reqErr(w, err)
+		reqErr(log, w, err)
 		return
 	}
 
@@ -333,9 +343,9 @@ func unregisterUser(b *IssueBot, w http.ResponseWriter, r *http.Request, f []str
 
 // --------------------- UTILITY PARSING FUNCIONS ---------------------
 
-func reqErr(w http.ResponseWriter, e error) {
+func reqErr(log *logrus.Entry, w http.ResponseWriter, e error) {
 	w.Write([]byte("Error:  malformed request"))
-	log.Println("Error processing request:", e)
+	log.Warn("Error processing request: ", e)
 }
 
 func getField(field string, r *http.Request) (string, error) {

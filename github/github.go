@@ -10,9 +10,13 @@ import (
 	"net/url"
 	"regexp"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 var _ = ioutil.ReadAll // XXX REMOVE ME when done debugging
+
+var l = logrus.WithFields(logrus.Fields{"component": "github"})
 
 // Base URL for API access
 const APIURL = "https://api.github.com/repos/"
@@ -231,6 +235,8 @@ func (s *Agent) SetToken(token string) {
 
 // Read a specific issue by its issue number.
 func (s *Agent) GetIssue(num int) (*Issue, error) {
+	log := l.WithField("method", "find")
+	log.Debugf("%s/%d", s.base, num)
 	return GetIssue(s.base, num)
 }
 
@@ -243,22 +249,30 @@ func (s *Agent) modIssue(num int, m map[string]interface{}) error {
 
 // Close an existing issue
 func (s *Agent) CloseIssue(num int) error {
+	log := l.WithField("method", "close")
+	log.Debugf("%s/%d", s.base, num)
 	return s.modIssue(num, map[string]interface{}{"state": "closed"})
 }
 
 // [Re]Open an existing issue
 func (s *Agent) OpenIssue(num int) error {
+	log := l.WithField("method", "open")
+	log.Debugf("%s/%d", s.base, num)
 	return s.modIssue(num, map[string]interface{}{"state": "open"})
 }
 
 // Remove assigned users from this issue
 func (s *Agent) UnassignIssue(num int) error {
+	log := l.WithField("method", "unassign")
+	log.Debugf("%s/%d", s.base, num)
 	ulist := []string{}
 	return s.modIssue(num, map[string]interface{}{"assignees": ulist})
 }
 
 // Assign a user to this issue
 func (s *Agent) AssignIssue(num int, user string) error {
+	log := l.WithField("method", "assign")
+	log.Debugf("%s/%d to %s", s.base, num, user)
 	ulist := []string{user}
 	return s.modIssue(num, map[string]interface{}{"assignees": ulist})
 }

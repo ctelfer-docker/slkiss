@@ -2,8 +2,9 @@
 
 Very simple.
 
-    make clean
-    make issuebot
+    make
+
+You must have `go` and `vndr` installed.
 
 # Running
 
